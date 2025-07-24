@@ -264,7 +264,9 @@ public class RewriteTablePathUtil {
 
         if (manifestsToRewrite.contains(file.path())) {
           result.toRewrite().add(file);
-          result.copyPlan().add(Pair.of(stagingPath(file.path(), stagingDir), newFile.path()));
+          result
+              .copyPlan()
+              .add(Pair.of(stagingPath(file.path(), stagingDir, sourcePrefix), newFile.path()));
         }
       }
       return result;
@@ -503,7 +505,10 @@ public class RewriteTablePathUtil {
         if (entry.isLive() && snapshotIds.contains(entry.snapshotId())) {
           result
               .copyPlan()
-              .add(Pair.of(stagingPath(file.location(), stagingLocation), movedFile.location()));
+              .add(
+                  Pair.of(
+                      stagingPath(file.location(), stagingLocation, sourcePrefix),
+                      movedFile.location()));
         }
         result.toRewrite().add(file);
         return result;
@@ -692,9 +697,10 @@ public class RewriteTablePathUtil {
    *
    * @param originalPath source path
    * @param stagingDir staging directory
+   * @param sourcePrefix source prefix of the table
    * @return a staging path under the staging directory, based on the original path
    */
-  public static String stagingPath(String originalPath, String stagingDir) {
-    return stagingDir + fileName(originalPath);
+  public static String stagingPath(String originalPath, String stagingDir, String sourcePrefix) {
+    return combinePaths(stagingDir, relativize(originalPath, sourcePrefix));
   }
 }

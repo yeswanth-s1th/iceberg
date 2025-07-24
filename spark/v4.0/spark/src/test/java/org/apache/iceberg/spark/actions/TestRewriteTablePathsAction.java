@@ -1122,6 +1122,65 @@ public class TestRewriteTablePathsAction extends TestBase {
     assertThat(tableBroadcast.getValue().uuid()).isEqualTo(table.uuid());
   }
 
+  @Test
+  public void testDuplicateDeleteFileNames() throws Exception {
+    List<ThreeColumnRecord> records =
+        Lists.newArrayList(new ThreeColumnRecord(1, "AAAAAAAAAA", "AAAA"));
+    Dataset<Row> df = spark.createDataFrame(records, ThreeColumnRecord.class).coalesce(1);
+    df.select("c1", "c2", "c3").write().format("iceberg").mode("append").save(table.location());
+
+    List<Pair<CharSequence, Long>> deletes1 =
+        Lists.newArrayList(
+            Pair.of(
+                Iterables.getOnlyElement(
+                        table.snapshot(table.currentSnapshot().parentId()).addedDataFiles(table.io()))
+                    .location(),
+                0L));
+
+    File file1 = new File(removePrefix(table.location() + "/data/deeply/nested/deletes.parquet"));
+    DeleteFile positionDeletes1 =
+        FileHelpers.writeDeleteFile(
+                table, table.io().newOutputFile(file1.toURI().toString()), deletes1)
+            .first();
+
+    table.newRowDelta().addDeletes(positionDeletes1).commit();
+
+    df.select("c1", "c2", "c3").write().format("iceberg").mode("append").save(table.location());
+
+    List<Pair<CharSequence, Long>> deletes2 =
+        Lists.newArrayList(
+            Pair.of(
+                Iterables.getOnlyElement(
+                        table.snapshot(table.currentSnapshot().parentId()).addedDataFiles(table.io()))
+                    .location(),
+                0L));
+
+    File file2 = new File(removePrefix(table.location() + "/data/deeply/nested2/deletes.parquet"));
+    DeleteFile positionDeletes2 =
+        FileHelpers.writeDeleteFile(
+                table, table.io().newOutputFile(file2.toURI().toString()), deletes2)
+            .first();
+    table.newRowDelta().addDeletes(positionDeletes2).commit();
+
+    assertThat(spark.read().format("iceberg").load(table.location()).collectAsList()).hasSize(2);
+
+    RewriteTablePath.Result result =
+        actions()
+            .rewriteTablePath(table)
+            .stagingLocation(stagingLocation())
+            .rewriteLocationPrefix(table.location(), targetTableLocation())
+            .execute();
+
+    checkFileNum(7, 6, 6, 25, result);
+
+    // copy the metadata files and data files
+    copyTableFiles(result);
+
+    // Positional delete affects a single row, so only one row must remain
+    assertThat(spark.read().format("iceberg").load(targetTableLocation()).collectAsList())
+        .hasSize(2);
+  }
+
   protected void checkFileNum(
       int versionFileCount,
       int manifestListCount,
